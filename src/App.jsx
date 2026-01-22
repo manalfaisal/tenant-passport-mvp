@@ -1,49 +1,14 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Home from "./pages/Home";
 import Submit from "./pages/Submit";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
+import ChooseRole from "./pages/ChooseRole";
 
 import { supabase } from "./lib/supabaseClient";
-
-const STORAGE_KEY = "tenant_passport_tickets_v1";
-
-const DEFAULT_TICKETS = [
-  {
-    id: crypto.randomUUID(),
-    name: "Jordan",
-    unit: "302",
-    category: "Plumbing",
-    urgency: "Medium",
-    description: "Leaky faucet under the sink.",
-    status: "New",
-    createdAt: Date.now(),
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Amina",
-    unit: "115",
-    category: "Heating/Cooling",
-    urgency: "High",
-    description: "Heater not turning on.",
-    status: "In Progress",
-    createdAt: Date.now(),
-  },
-];
-
-function loadTickets() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
+import { getUserRole } from "./lib/roles";
 
 function NavItem({ to, label }) {
   return (
@@ -63,27 +28,30 @@ function NavItem({ to, label }) {
   );
 }
 
-function ProtectedRoute({ session, children }) {
+function RequireAuth({ session, children }) {
   if (!session) return <Navigate to="/auth" replace />;
+  return children;
+}
+
+function RequireRole({ role, children, userRole }) {
+  if (!userRole) return <Navigate to="/choose-role" replace />;
+  if (userRole !== role)
+    return (
+      <Navigate
+        to={userRole === "tenant" ? "/submit" : "/dashboard"}
+        replace
+      />
+    );
   return children;
 }
 
 export default function App() {
   const [session, setSession] = useState(null);
 
-  // Tickets (still local for now — we’ll move to Supabase DB right after)
-  const [tickets, setTickets] = useState(() => {
-    const saved = loadTickets();
-    if (saved) return saved;
-    return DEFAULT_TICKETS;
-  });
+  // Tickets now come from Supabase (no localStorage)
+  const [tickets, setTickets] = useState([]);
 
-  // Save tickets locally (until DB step)
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tickets));
-  }, [tickets]);
-
-  // Auth session tracking (Supabase recommended pattern)
+  // Track auth session
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
 
@@ -96,35 +64,116 @@ export default function App() {
     };
   }, []);
 
+  const userId = session?.user?.id || null;
+
+  // Role is stored locally per user id for now
+  const userRole = useMemo(() => getUserRole(userId), [userId, session]);
+
+  // Load tickets from Supabase once logged in
+  useEffect(() => {
+    async function load() {
+      if (!session) return;
+
+      const { data, error } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("property_key", "demo")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        alert(error.message);
+        return;
+      }
+
+      setTickets(data || []);
+    }
+
+    load();
+  }, [session]);
+
   async function handleLogout() {
     await supabase.auth.signOut();
   }
 
-  function addTicket(newTicket) {
-    setTickets((prev) => [
+  // Insert ticket into Supabase
+  async function addTicket(newTicket) {
+    const payload = {
+      property_key: "demo",
+      ...newTicket,
+    };
+
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setTickets((prev) => [data, ...prev]);
+  }
+
+  // Update status in Supabase
+  async function updateTicketStatus(id, status) {
+    const { data, error } = await supabase
+      .from("tickets")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setTickets((prev) => prev.map((t) => (t.id === id ? data : t)));
+  }
+
+  // Reset demo data in Supabase (delete + reseed)
+  async function resetDemo() {
+    const defaults = [
       {
-        id: crypto.randomUUID(),
+        property_key: "demo",
+        name: "Jordan",
+        unit: "302",
+        city: "San Francisco",
+        state: "CA",
+        category: "Plumbing",
+        urgency: "Medium",
+        description: "Leaky faucet under the sink.",
         status: "New",
-        createdAt: Date.now(),
-        ...newTicket,
       },
-      ...prev,
-    ]);
-  }
+      {
+        property_key: "demo",
+        name: "Amina",
+        unit: "115",
+        city: "San Francisco",
+        state: "CA",
+        category: "Heating/Cooling",
+        urgency: "High",
+        description: "Heater not turning on.",
+        status: "In Progress",
+      },
+    ];
 
-  function updateTicketStatus(id, status) {
-    setTickets((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status } : t))
-    );
-  }
+    const del = await supabase.from("tickets").delete().eq("property_key", "demo");
+    if (del.error) {
+      alert(del.error.message);
+      return;
+    }
 
-  function resetDemo() {
-    const fresh = DEFAULT_TICKETS.map((t) => ({
-      ...t,
-      id: crypto.randomUUID(),
-      createdAt: Date.now(),
-    }));
-    setTickets(fresh);
+    const ins = await supabase.from("tickets").insert(defaults).select();
+    if (ins.error) {
+      alert(ins.error.message);
+      return;
+    }
+
+    setTickets(ins.data || []);
   }
 
   return (
@@ -139,8 +188,19 @@ export default function App() {
           <div className="flex items-center gap-2">
             <nav className="hidden sm:flex items-center gap-1">
               <NavItem to="/" label="Home" />
-              <NavItem to="/submit" label="Submit" />
-              <NavItem to="/dashboard" label="Dashboard" />
+
+              {/* Only show the link that matches role (after role chosen) */}
+              {session && userRole === "tenant" ? (
+                <NavItem to="/submit" label="Submit" />
+              ) : null}
+              {session && userRole === "manager" ? (
+                <NavItem to="/dashboard" label="Dashboard" />
+              ) : null}
+
+              {/* If logged in but role not chosen, show link */}
+              {session && !userRole ? (
+                <NavItem to="/choose-role" label="Choose Role" />
+              ) : null}
             </nav>
 
             {session ? (
@@ -169,24 +229,37 @@ export default function App() {
             <Route path="/auth" element={<Auth />} />
 
             <Route
+              path="/choose-role"
+              element={
+                <RequireAuth session={session}>
+                  <ChooseRole />
+                </RequireAuth>
+              }
+            />
+
+            <Route
               path="/submit"
               element={
-                <ProtectedRoute session={session}>
-                  <Submit addTicket={addTicket} />
-                </ProtectedRoute>
+                <RequireAuth session={session}>
+                  <RequireRole role="tenant" userRole={userRole}>
+                    <Submit addTicket={addTicket} />
+                  </RequireRole>
+                </RequireAuth>
               }
             />
 
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute session={session}>
-                  <Dashboard
-                    tickets={tickets}
-                    updateTicketStatus={updateTicketStatus}
-                    resetDemo={resetDemo}
-                  />
-                </ProtectedRoute>
+                <RequireAuth session={session}>
+                  <RequireRole role="manager" userRole={userRole}>
+                    <Dashboard
+                      tickets={tickets}
+                      updateTicketStatus={updateTicketStatus}
+                      resetDemo={resetDemo}
+                    />
+                  </RequireRole>
+                </RequireAuth>
               }
             />
           </Routes>
