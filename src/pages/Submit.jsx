@@ -7,6 +7,8 @@ export default function Submit({ addTicket }) {
   const [form, setForm] = useState({
     name: "",
     unit: "",
+    city: "",
+    state: "",
     category: "Plumbing",
     urgency: "Low",
     description: "",
@@ -19,15 +21,12 @@ export default function Submit({ addTicket }) {
   function handleSubmit(e) {
     e.preventDefault();
 
-    // basic validation (simple on purpose)
     if (!form.name.trim() || !form.unit.trim() || !form.description.trim()) {
       alert("Please fill out name, unit number, and description.");
       return;
     }
 
     addTicket(form);
-
-    // Send them straight to dashboard so they can see it worked
     navigate("/dashboard");
   }
 
@@ -62,6 +61,27 @@ export default function Submit({ addTicket }) {
             </Field>
           </div>
 
+          {/* NEW: City + State for multi-property managers */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="City (optional)">
+              <input
+                value={form.city}
+                onChange={(e) => setField("city", e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20"
+                placeholder="San Francisco"
+              />
+            </Field>
+
+            <Field label="State (optional)">
+              <input
+                value={form.state}
+                onChange={(e) => setField("state", e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20"
+                placeholder="CA"
+              />
+            </Field>
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Category">
               <select
@@ -73,6 +93,8 @@ export default function Submit({ addTicket }) {
                 <option>Electrical</option>
                 <option>Heating/Cooling</option>
                 <option>Appliances</option>
+                <option>Structural</option>
+                <option>Neighbors</option>
                 <option>Other</option>
               </select>
             </Field>
@@ -107,7 +129,7 @@ export default function Submit({ addTicket }) {
           </button>
 
           <p className="text-xs text-gray-500">
-            Next step: persist this to a database (Firebase/Supabase).
+            Next: persist these tickets to a database (Supabase) and add tenant vs manager views.
           </p>
         </form>
       </div>

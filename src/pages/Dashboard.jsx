@@ -74,7 +74,11 @@ function TicketCard({ ticket, updateTicketStatus }) {
 
           <p className="text-sm text-gray-600 mt-1">
             {ticket.name} • Unit {ticket.unit}
+            {ticket.city || ticket.state ? (
+                <> • {formatLocation(ticket.city, ticket.state)}</>
+            ) : null}
           </p>
+
 
           <p className={`mt-2 text-sm font-medium ${urgencyStyle(ticket.urgency)}`}>
             Urgency: {ticket.urgency}
@@ -110,6 +114,13 @@ function pillStyle(status) {
   if (status === "In Progress") return "bg-yellow-50 text-yellow-800";
   return "bg-green-50 text-green-700";
 }
+function formatLocation(city, state) {
+    const c = (city || "").trim();
+    const s = (state || "").trim();
+    if (c && s) return `${c}, ${s}`;
+    return c || s;
+}
+  
 
 function urgencyStyle(urgency) {
   if (urgency === "High") return "text-red-600";
